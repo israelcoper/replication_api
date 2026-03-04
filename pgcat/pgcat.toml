@@ -20,10 +20,16 @@ default_role = "any"
 query_parser_enabled = true
 # Send SELECTs to replicas and writes to primary automatically
 query_parser_read_write_splitting = true
-# Prevent sending read queries to the primary to reduce its load
-primary_reads_enabled = false
+# Allow reads to fall back to primary if all replicas are banned due to lag
+primary_reads_enabled = true
 # Distribute read queries across replicas randomly
 load_balancing_mode = "random"
+# Check replica lag every 5 seconds
+replica_lag_check_interval = 5000
+# Ban a replica if its WAL lag exceeds 5 MB
+max_lag = 5242880
+# Keep a banned replica out of rotation for 10 seconds
+ban_time = 10
 
 [pools.replication_api_development.users.0]
 # PostgreSQL credentials used by PgCat to connect to the servers
