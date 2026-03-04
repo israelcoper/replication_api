@@ -17,6 +17,7 @@ services:
         -c max_wal_senders=10
         -c max_replication_slots=10
         -c hot_standby=on
+        -c log_statement=all
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 5s
@@ -44,6 +45,21 @@ services:
     networks:
       - replication-net
 
+  pgcat:
+    image: ghcr.io/postgresml/pgcat:latest
+    container_name: pgcat
+    ports:
+      - "6432:6432"
+    volumes:
+      - ./pgcat/pgcat.toml:/etc/pgcat/pgcat.toml
+    depends_on:
+      primarydb:
+        condition: service_healthy
+      replicadb:
+        condition: service_started
+    networks:
+      - replication-net
+
   railsapi:
     build:
       context: .
@@ -64,6 +80,7 @@ services:
     depends_on:
       - primarydb
       - replicadb
+      - pgcat
     networks:
       - replication-net
     tty: true

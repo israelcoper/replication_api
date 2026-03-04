@@ -46,4 +46,4 @@ chmod 0700 /var/lib/postgresql/data
 
 # 6. Start PostgreSQL in replica (read-only) mode
 echo "Starting PostgreSQL replica..."
-exec gosu postgres postgres
+exec gosu postgres postgres -c log_statement=all

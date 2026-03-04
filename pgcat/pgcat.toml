@@ -1,0 +1,29 @@
+[general]
+host = "0.0.0.0"
+port = 6432
+admin_username = "pgcat"
+admin_password = "pgcat"
+server_lifetime = 86400000
+idle_timeout = 60000
+
+[pools.replication_api_development]
+pool_mode = "transaction"
+default_role = "any"
+query_parser_enabled = true
+query_parser_read_write_splitting = true
+primary_reads_enabled = false
+load_balancing_mode = "random"
+
+[pools.replication_api_development.users.0]
+username = "postgres"
+password = "postgres"
+pool_size = 20
+min_pool_size = 5
+pool_mode = "transaction"
+
+[pools.replication_api_development.shards.0]
+servers = [
+  ["primarydb", 5432, "primary"],
+  ["replicadb", 5432, "replica"],
+]
+database = "replication_api_development"

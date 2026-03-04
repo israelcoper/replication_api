@@ -20,14 +20,20 @@ default: &default
   pool: <%= ENV.fetch("RAILS_MAX_THREADS") { 5 } %>
 
 development:
-  primary:
-    <<: *default
-    url: <%= ENV['PRIMARY_DATABASE_URL'] %>
-  primary_replica:
-    <<: *default
-    url: <%= ENV['REPLICA_DATABASE_URL'] %>
-    replica: true
-    database_tasks: false
+  # Single connection through pgcat
+  <<: *default
+  url: <%= ENV['DATABASE_URL'] %>
+  prepared_statements: false # prepared statements don't work with transaction pooling.
+
+  # Multiple connections setup with primary and replica roles
+  # primary:
+  #   <<: *default
+  #   url: <%= ENV['PRIMARY_DATABASE_URL'] %>
+  # primary_replica:
+  #   <<: *default
+  #   url: <%= ENV['REPLICA_DATABASE_URL'] %>
+  #   replica: true
+  #   database_tasks: false
 
   # The specified database role being used to connect to PostgreSQL.
   # To create additional roles in PostgreSQL see `$ createuser --help`.
