@@ -1,7 +1,7 @@
 source "https://rubygems.org"
 
 # Shim to load environment variables from .env into ENV in development.
-gem 'dotenv', groups: [:development, :test]
+gem 'dotenv-rails', '~> 3.2'
 
 # Bundle edge Rails instead: gem "rails", github: "rails/rails", branch: "main"
 gem "rails", "~> 7.2.3"
