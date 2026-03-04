@@ -1,29 +1,46 @@
 [general]
+# Address PgCat listens on (0.0.0.0 = all interfaces)
 host = "0.0.0.0"
+# Port clients connect to (PgCat sits in front of PostgreSQL)
 port = 6432
+# Credentials for the PgCat admin console
 admin_username = "pgcat"
 admin_password = "pgcat"
+# Max lifetime of a server connection in milliseconds (86400000 = 24h)
 server_lifetime = 86400000
+# Close idle server connections after this many milliseconds (60000 = 1 min)
 idle_timeout = 60000
 
 [pools.replication_api_development]
+# Transaction mode: connection is held only for the duration of a transaction
 pool_mode = "transaction"
+# Allow both primary and replica connections by default
 default_role = "any"
+# Parse queries to automatically route reads/writes to the correct server
 query_parser_enabled = true
+# Send SELECTs to replicas and writes to primary automatically
 query_parser_read_write_splitting = true
+# Prevent sending read queries to the primary to reduce its load
 primary_reads_enabled = false
+# Distribute read queries across replicas randomly
 load_balancing_mode = "random"
 
 [pools.replication_api_development.users.0]
+# PostgreSQL credentials used by PgCat to connect to the servers
 username = "postgres"
 password = "postgres"
+# Maximum number of server connections in the pool
 pool_size = 20
+# Minimum number of server connections kept alive
 min_pool_size = 5
+# Override pool mode at the user level (same as pool-level here)
 pool_mode = "transaction"
 
 [pools.replication_api_development.shards.0]
+# List of servers: [host, port, role] — primary handles writes, replica handles reads
 servers = [
   ["primarydb", 5432, "primary"],
   ["replicadb", 5432, "replica"],
 ]
+# The actual PostgreSQL database name to connect to
 database = "replication_api_development"
