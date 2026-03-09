@@ -1,0 +1,4 @@
+aws_profile     = "default" # Pass your aws cli profile to use
+db_password     = "a-strong-password-here"
+rails_image     = "placeholder"         # Will be updated by CI/CD
+secret_key_base = "generate-with-rails-secret"

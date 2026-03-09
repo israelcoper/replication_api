@@ -1,0 +1,29 @@
+[general]
+host = "0.0.0.0"
+port = 6432
+admin_username = "pgcat"
+admin_password = "pgcat"
+server_lifetime = 86400000
+idle_timeout = 60000
+
+[pools.${db_name}]
+pool_mode = "transaction"
+default_role = "any"
+query_parser_enabled = true
+query_parser_read_write_splitting = true
+primary_reads_enabled = true
+load_balancing_mode = "random"
+
+[pools.${db_name}.users.0]
+username = "${db_username}"
+password = "${db_password}"
+pool_size = 20
+min_pool_size = 5
+pool_mode = "transaction"
+
+[pools.${db_name}.shards.0]
+servers = [
+  ["${primary_host}", ${primary_port}, "primary"],
+  ["${replica_host}", ${replica_port}, "replica"],
+]
+database = "${db_name}"

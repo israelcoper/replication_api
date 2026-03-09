@@ -1,0 +1,147 @@
+# =============================================================================
+# DEPLOY TO AWS ECS
+# =============================================================================
+# This workflow runs automatically when a pull request to the "production"
+# branch is merged. It:
+#   1. Builds a Docker image of your Rails app
+#   2. Pushes it to AWS ECR (your private Docker registry)
+#   3. Updates the ECS service to use the new image
+#   4. Waits for the deployment to stabilize
+#
+# Authentication uses OIDC — no long-lived AWS keys stored in GitHub!
+# =============================================================================
+
+name: Deploy to ECS
+
+# --- TRIGGER ---
+# "push" to "production" branch = a PR was merged into production.
+# GitHub merges PRs by pushing the merge commit to the target branch.
+on:
+  push:
+    branches:
+      - production
+
+# --- PERMISSIONS ---
+# These are the GitHub token permissions this workflow needs.
+# "id-token: write" is REQUIRED for OIDC authentication with AWS.
+# "contents: read" lets the workflow check out your code.
+permissions:
+  id-token: write   # Needed to request the OIDC JWT token
+  contents: read     # Needed to checkout the repository
+
+# --- ENVIRONMENT VARIABLES ---
+# Define shared variables used across all steps.
+# Change these to match YOUR setup.
+env:
+  AWS_REGION: ap-southeast-1
+  ECR_REPOSITORY: replication-api/railsapi    # Must match your ECR repo name
+  ECS_CLUSTER: replication-api-cluster        # Must match your ECS cluster name
+  ECS_SERVICE: replication-api-service        # Must match your ECS service name
+  TASK_FAMILY: replication-api-task           # Must match your task definition family
+
+jobs:
+  deploy:
+    name: Build & Deploy
+    runs-on: ubuntu-latest  # Use GitHub's free Linux runners
+
+    steps:
+      # -----------------------------------------------------------------------
+      # Step 1: Check out the code
+      # -----------------------------------------------------------------------
+      # This clones your repository into the runner so we can build the image.
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # -----------------------------------------------------------------------
+      # Step 2: Authenticate with AWS using OIDC
+      # -----------------------------------------------------------------------
+      # This step:
+      #   1. Requests an OIDC token from GitHub
+      #   2. Sends it to AWS STS
+      #   3. Receives temporary AWS credentials (~1 hour)
+      # No AWS access keys are stored in GitHub secrets!
+      - name: Configure AWS credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          # This role ARN comes from Terraform output: github_actions_role_arn
+          # Store it as a GitHub Actions variable (Settings > Secrets and variables > Actions)
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      # -----------------------------------------------------------------------
+      # Step 3: Log in to ECR
+      # -----------------------------------------------------------------------
+      # ECR requires authentication before you can push images.
+      # This action handles the "docker login" for you.
+      - name: Log in to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      # -----------------------------------------------------------------------
+      # Step 4: Build and push the Docker image
+      # -----------------------------------------------------------------------
+      # We build the image with two tags:
+      #   1. The git SHA (unique, immutable — great for rollbacks)
+      #   2. "latest" (convenient for humans, always points to newest)
+      - name: Build, tag, and push Docker image
+        id: build-image
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}  # Use the git commit SHA as the tag
+        run: |
+          # Build the Docker image for production
+          docker build \
+            --build-arg RUBY_VERSION=3.2.2 \
+            -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG \
+            -t $ECR_REGISTRY/$ECR_REPOSITORY:latest \
+            .
+
+          # Push both tags to ECR
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
+
+          # Save the full image URI for the next step
+          echo "image=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" >> $GITHUB_OUTPUT
+
+      # -----------------------------------------------------------------------
+      # Step 5: Update ECS task definition with the new image
+      # -----------------------------------------------------------------------
+      # This step:
+      #   1. Fetches the current task definition from ECS
+      #   2. Replaces the Rails image URI with the newly built one
+      #   3. Registers it as a new revision
+      - name: Download current task definition
+        run: |
+          # Fetch the current task definition JSON from ECS
+          aws ecs describe-task-definition \
+            --task-definition $TASK_FAMILY \
+            --query 'taskDefinition' \
+            --output json > task-definition.json
+
+          # Clean up fields that can't be included when registering a new revision
+          # (AWS adds these read-only fields that cause errors if you send them back)
+          jq 'del(.taskDefinitionArn, .revision, .status, .requiresAttributes, .compatibilities, .registeredAt, .registeredBy)' \
+            task-definition.json > clean-task-definition.json
+
+      - name: Update task definition with new image
+        id: task-def
+        uses: aws-actions/amazon-ecs-render-task-definition@v1
+        with:
+          task-definition: clean-task-definition.json
+          container-name: railsapi                          # Update only the Rails container
+          image: ${{ steps.build-image.outputs.image }}     # Use the new image
+
+      # -----------------------------------------------------------------------
+      # Step 6: Deploy the new task definition to ECS
+      # -----------------------------------------------------------------------
+      # This step:
+      #   1. Registers the new task definition revision
+      #   2. Updates the ECS service to use it
+      #   3. Waits for the deployment to complete (new tasks healthy, old tasks drained)
+      - name: Deploy to Amazon ECS
+        uses: aws-actions/amazon-ecs-deploy-task-definition@v2
+        with:
+          task-definition: ${{ steps.task-def.outputs.task-definition }}
+          service: ${{ env.ECS_SERVICE }}
+          cluster: ${{ env.ECS_CLUSTER }}
+          wait-for-service-stability: true  # Wait until new tasks pass health checks

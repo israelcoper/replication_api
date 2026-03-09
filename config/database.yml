@@ -93,8 +93,7 @@ test:
 # Read https://guides.rubyonrails.org/configuring.html#configuring-a-database
 # for a full overview on how database connection configuration can be specified.
 #
-# production:
-#   <<: *default
-#   database: replication_api_production
-#   username: replication_api
-#   password: <%= ENV["REPLICATION_API_DATABASE_PASSWORD"] %>
+production:
+  <<: *default
+  url: <%= ENV['DATABASE_URL'] %>
+  prepared_statements: false # required for PgCat transaction pooling

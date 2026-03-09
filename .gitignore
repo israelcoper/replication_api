@@ -35,3 +35,23 @@
 
 # Ignore config files except template
 docker-compose.yml
+
+# Terraform
+# Local .terraform directory (downloaded providers and modules)
+**/.terraform/*
+# Terraform state files (contain sensitive data like DB passwords in plaintext)
+*.tfstate
+*.tfstate.*
+# Crash log files from Terraform itself
+crash.log
+crash.*.log
+# Variable files (may contain secrets like DB passwords)
+*.tfvars
+*.tfvars.json
+# Override files (used for local-only Terraform settings)
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+# Terraform lock file is safe to commit (pins provider versions for consistency)
+# !.terraform.lock.hcl
