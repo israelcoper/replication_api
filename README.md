@@ -109,7 +109,7 @@ docker compose exec railsapi bin/rails console
 ### 2. Trigger a write (routed to primary)
 
 ```ruby
-User.create!(name: "Alice")
+User.create!(first_name: "Alice")
 ```
 
 You will see the `INSERT` logged in `docker compose logs -f primarydb`.
