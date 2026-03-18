@@ -32,6 +32,8 @@
 
 # Ignore master key for decrypting credentials and more.
 /config/master.key
+# Ignore database configuration
+config/database.yml
 
 # Ignore config files except template
 docker-compose.yml

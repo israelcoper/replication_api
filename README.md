@@ -22,7 +22,8 @@ Rails API → PgCat (:6432) ──┬── primarydb (:54321)  [writes]
 
 ```bash
 cp .env.sample .env
-cp docker-compose.yml docker-compose.yml
+cp docker-compose.yml.sample docker-compose.yml
+cp config/database.yml.sample config/database.yml
 ```
 
 ### 2. Start all services
