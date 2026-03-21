@@ -5,8 +5,10 @@
 # branch is merged. It:
 #   1. Builds a Docker image of your Rails app
 #   2. Pushes it to AWS ECR (your private Docker registry)
-#   3. Updates the ECS service to use the new image
-#   4. Waits for the deployment to stabilize
+#   3. Registers the new ECS task definition revision
+#   4. Runs "db:create db:migrate" as a one-off Fargate task (safe for first & subsequent deploys)
+#   5. Updates the ECS service to use the new image
+#   6. Waits for the deployment to stabilize
 #
 # Authentication uses OIDC — no long-lived AWS keys stored in GitHub!
 # =============================================================================
@@ -132,12 +134,68 @@ jobs:
           image: ${{ steps.build-image.outputs.image }}     # Use the new image
 
       # -----------------------------------------------------------------------
-      # Step 6: Deploy the new task definition to ECS
+      # Step 6: Register the new task definition revision
       # -----------------------------------------------------------------------
-      # This step:
-      #   1. Registers the new task definition revision
-      #   2. Updates the ECS service to use it
-      #   3. Waits for the deployment to complete (new tasks healthy, old tasks drained)
+      # We register it once here so both the migration task and the service
+      # update share the exact same revision (same image, same config).
+      - name: Register new task definition
+        id: register-task-def
+        run: |
+          TASK_DEF_ARN=$(aws ecs register-task-definition \
+            --cli-input-json file://${{ steps.task-def.outputs.task-definition }} \
+            --query 'taskDefinition.taskDefinitionArn' \
+            --output text)
+          echo "task_def_arn=$TASK_DEF_ARN" >> $GITHUB_OUTPUT
+
+      # -----------------------------------------------------------------------
+      # Step 7: Run database migrations
+      # -----------------------------------------------------------------------
+      # Runs "rails db:create db:migrate" as a short-lived Fargate task using
+      # the newly registered task definition.
+      #   - db:create  → creates the DB on first deploy; no-ops if it exists
+      #   - db:migrate → applies any pending migrations on every deploy
+      # The step fails the whole workflow if the migration exits non-zero,
+      # so the service is never updated with a broken schema.
+      - name: Run database migrations
+        run: |
+          # Reuse the same network config the running service already uses
+          NETWORK_CONFIG=$(aws ecs describe-services \
+            --cluster $ECS_CLUSTER \
+            --services $ECS_SERVICE \
+            --query 'services[0].networkConfiguration' \
+            --output json)
+
+          TASK_ARN=$(aws ecs run-task \
+            --cluster $ECS_CLUSTER \
+            --task-definition ${{ steps.register-task-def.outputs.task_def_arn }} \
+            --launch-type FARGATE \
+            --network-configuration "$NETWORK_CONFIG" \
+            --overrides '{"containerOverrides":[{"name":"railsapi","command":["bundle","exec","rails","db:create","db:migrate"]}]}' \
+            --query 'tasks[0].taskArn' \
+            --output text)
+
+          echo "Migration task started: $TASK_ARN"
+          echo "Waiting for migration task to finish..."
+          aws ecs wait tasks-stopped --cluster $ECS_CLUSTER --tasks $TASK_ARN
+
+          EXIT_CODE=$(aws ecs describe-tasks \
+            --cluster $ECS_CLUSTER \
+            --tasks $TASK_ARN \
+            --query 'tasks[0].containers[0].exitCode' \
+            --output text)
+
+          if [ "$EXIT_CODE" != "0" ]; then
+            echo "Migration failed with exit code $EXIT_CODE"
+            exit 1
+          fi
+
+          echo "Migrations completed successfully"
+
+      # -----------------------------------------------------------------------
+      # Step 8: Deploy the new task definition to ECS
+      # -----------------------------------------------------------------------
+      # Updates the service to the already-registered revision and waits for
+      # all new tasks to pass health checks before the workflow succeeds.
       - name: Deploy to Amazon ECS
         uses: aws-actions/amazon-ecs-deploy-task-definition@v2
         with:

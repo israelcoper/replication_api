@@ -212,7 +212,7 @@ The application can be deployed to AWS ECS using Terraform. The architecture use
 cd terraform
 
 # Create your variables file (NEVER commit this!)
-cp terraform.tfvars.example terraform.tfvars
+cp terraform.tfvars.sample terraform.tfvars
 # Edit terraform.tfvars and set your db_password
 
 # Download providers
@@ -232,30 +232,9 @@ Note the outputs after apply completes — you will need `github_actions_role_ar
 1. Create a `production` branch in your repository
 2. Go to **Settings > Secrets and variables > Actions > Variables**
 3. Add a variable `AWS_ROLE_ARN` with the value from the Terraform output `github_actions_role_arn`
-4. Every merged PR to `production` will now trigger an automatic deployment
+4. Every merged PR to `production` will now trigger an automatic deployment, including `db:create` and `db:migrate` before the service is updated
 
-### 3. Run database migrations (first deploy only)
-
-After the first deployment, find a running task ID and then run migrations:
-
-```bash
-# List running tasks to get the task ID
-aws ecs list-tasks \
-  --profile <your-aws-profile> \
-  --cluster replication-api-cluster \
-  --service-name replication-api-service
-
-# Run migrations inside the running task
-aws ecs execute-command \
-  --profile <your-aws-profile> \
-  --cluster replication-api-cluster \
-  --task <task-id> \
-  --container railsapi \
-  --interactive \
-  --command "bin/rails db:create db:migrate"
-```
-
-### 4. Tear down infrastructure
+### 3. Tear down infrastructure
 
 ```bash
 cd terraform
