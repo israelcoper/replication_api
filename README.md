@@ -4,9 +4,65 @@ A Rails API demonstrating PostgreSQL primary/replica streaming replication with 
 
 ## Architecture
 
+### System Context
+
+```mermaid
+graph LR
+  linkStyle default fill:#ffffff
+
+  subgraph diagram ["System Context View: Replication API"]
+    style diagram fill:#ffffff,stroke:#ffffff
+
+    1["<div style='font-weight: bold'>Developer</div><div style='font-size: 70%; margin-top: 0px'>[Person]</div><div style='font-size: 80%; margin-top:10px'>Interacts with the API<br />locally or via the load<br />balancer</div>"]
+    style 1 fill:#ffffff,stroke:#444444,color:#444444
+    2["<div style='font-weight: bold'>Replication API</div><div style='font-size: 70%; margin-top: 0px'>[Software System]</div><div style='font-size: 80%; margin-top:10px'>Rails API demonstrating<br />PostgreSQL primary/replica<br />streaming replication with<br />PgCat as connection pooler</div>"]
+    style 2 fill:#ffffff,stroke:#444444,color:#444444
+
+    1-. "<div>sends HTTP requests to</div><div style='font-size: 70%'>[HTTP :80]</div>" .->2
+  end
 ```
-Rails API → PgCat (:6432) ──┬── primarydb (:54321)  [writes]
-                             └── replicadb (:54322)  [reads]
+
+### Containers
+
+```mermaid
+graph LR
+  linkStyle default fill:#ffffff
+
+  subgraph diagram ["Container View: Replication API"]
+    style diagram fill:#ffffff,stroke:#ffffff
+
+    1["<div style='font-weight: bold'>Developer</div><div style='font-size: 70%; margin-top: 0px'>[Person]</div><div style='font-size: 80%; margin-top:10px'>Interacts with the API<br />locally or via the load<br />balancer</div>"]
+    style 1 fill:#ffffff,stroke:#444444,color:#444444
+
+    subgraph 2 ["Replication API"]
+      style 2 fill:#ffffff,stroke:#444444,color:#444444
+
+      3["<div style='font-weight: bold'>ALB</div><div style='font-size: 70%; margin-top: 0px'>[Container: AWS Application Load Balancer]</div><div style='font-size: 80%; margin-top:10px'>Internet-facing Application<br />Load Balancer. Routes HTTP<br />traffic to ECS tasks.</div>"]
+      style 3 fill:#ffffff,stroke:#444444,color:#444444
+      4["<div style='font-weight: bold'>Rails API</div><div style='font-size: 70%; margin-top: 0px'>[Container: Ruby on Rails 7 / Ruby 3]</div><div style='font-size: 80%; margin-top:10px'>Handles HTTP requests.<br />Connects to PgCat on<br />localhost:6432 for all<br />database operations.</div>"]
+      style 4 fill:#ffffff,stroke:#444444,color:#444444
+      5["<div style='font-weight: bold'>PgCat</div><div style='font-size: 70%; margin-top: 0px'>[Container: PgCat]</div><div style='font-size: 80%; margin-top:10px'>Connection pooler with query<br />parser. Routes SELECTs to<br />replica and writes to<br />primary. Pool size: 20.</div>"]
+      style 5 fill:#ffffff,stroke:#444444,color:#444444
+      6["<div style='font-weight: bold'>RDS Primary</div><div style='font-size: 70%; margin-top: 0px'>[Container: PostgreSQL 16 on AWS RDS db.t3.micro]</div><div style='font-size: 80%; margin-top:10px'>PostgreSQL 16 primary<br />instance. Handles all write<br />operations. Streams WAL to<br />replica.</div>"]
+      style 6 fill:#ffffff,stroke:#444444,color:#444444
+      7["<div style='font-weight: bold'>RDS Replica</div><div style='font-size: 70%; margin-top: 0px'>[Container: PostgreSQL 16 on AWS RDS db.t3.micro]</div><div style='font-size: 80%; margin-top:10px'>PostgreSQL 16 read replica.<br />Handles read queries routed<br />by PgCat. Read-only.</div>"]
+      style 7 fill:#ffffff,stroke:#444444,color:#444444
+      8["<div style='font-weight: bold'>ECR</div><div style='font-size: 70%; margin-top: 0px'>[Container: AWS Elastic Container Registry]</div><div style='font-size: 80%; margin-top:10px'>Container image registry.<br />Stores railsapi images tagged<br />with commit SHA and latest.</div>"]
+      style 8 fill:#ffffff,stroke:#444444,color:#444444
+      9["<div style='font-weight: bold'>GitHub Actions</div><div style='font-size: 70%; margin-top: 0px'>[Container: GitHub Actions / OIDC]</div><div style='font-size: 80%; margin-top:10px'>CI/CD pipeline. Builds and<br />pushes Docker image, updates<br />ECS task definition, runs<br />db:migrate.</div>"]
+      style 9 fill:#ffffff,stroke:#444444,color:#444444
+    end
+
+    1-. "<div>sends HTTP requests to</div><div style='font-size: 70%'>[HTTP :80]</div>" .->3
+    1-. "<div>uses locally via</div><div style='font-size: 70%'>[HTTP :3003 (Docker Compose)]</div>" .->4
+    3-. "<div>forwards requests to</div><div style='font-size: 70%'>[HTTP :3000]</div>" .->4
+    4-. "<div>queries via</div><div style='font-size: 70%'>[PostgreSQL :6432 (localhost in ECS task)]</div>" .->5
+    5-. "<div>routes writes to</div><div style='font-size: 70%'>[PostgreSQL :5432]</div>" .->6
+    5-. "<div>routes reads to</div><div style='font-size: 70%'>[PostgreSQL :5432]</div>" .->7
+    6-. "<div>replicates WAL to</div><div style='font-size: 70%'>[PostgreSQL streaming replication]</div>" .->7
+    9-. "<div>pushes Docker image to</div><div style='font-size: 70%'>[docker push]</div>" .->8
+    9-. "<div>deploys via ECS task<br />definition update +<br />db:migrate</div><div style='font-size: 70%'>[AWS ECS API]</div>" .->4
+  end
 ```
 
 - **primarydb** — PostgreSQL primary with WAL-level logical replication and a physical replication slot (`replication_api_slot`)
@@ -136,6 +192,60 @@ A near-zero lag confirms data written to the primary has been replicated.
 
 ---
 
+## Local Deployment (Docker Compose)
+
+```mermaid
+graph LR
+  linkStyle default fill:#ffffff
+
+  subgraph diagram ["Deployment View: Replication API - Local (Docker Compose)"]
+    style diagram fill:#ffffff,stroke:#ffffff
+
+    subgraph 48 ["Developer Machine"]
+      style 48 fill:#ffffff,stroke:#444444,color:#444444
+
+      subgraph 49 ["Docker Network"]
+        style 49 fill:#ffffff,stroke:#444444,color:#444444
+
+        subgraph 50 ["railsapi container"]
+          style 50 fill:#ffffff,stroke:#444444,color:#444444
+
+          51["<div style='font-weight: bold'>Rails API</div><div style='font-size: 70%; margin-top: 0px'>[Container: Ruby on Rails 7 / Ruby 3]</div><div style='font-size: 80%; margin-top:10px'>Handles HTTP requests.<br />Connects to PgCat on<br />localhost:6432 for all<br />database operations.</div>"]
+          style 51 fill:#ffffff,stroke:#444444,color:#444444
+        end
+
+        subgraph 52 ["pgcat container"]
+          style 52 fill:#ffffff,stroke:#444444,color:#444444
+
+          53["<div style='font-weight: bold'>PgCat</div><div style='font-size: 70%; margin-top: 0px'>[Container: PgCat]</div><div style='font-size: 80%; margin-top:10px'>Connection pooler with query<br />parser. Routes SELECTs to<br />replica and writes to<br />primary. Pool size: 20.</div>"]
+          style 53 fill:#ffffff,stroke:#444444,color:#444444
+        end
+
+        subgraph 55 ["primarydb container"]
+          style 55 fill:#ffffff,stroke:#444444,color:#444444
+
+          56["<div style='font-weight: bold'>RDS Primary</div><div style='font-size: 70%; margin-top: 0px'>[Container: PostgreSQL 16 on AWS RDS db.t3.micro]</div><div style='font-size: 80%; margin-top:10px'>PostgreSQL 16 primary<br />instance. Handles all write<br />operations. Streams WAL to<br />replica.</div>"]
+          style 56 fill:#ffffff,stroke:#444444,color:#444444
+        end
+
+        subgraph 58 ["replicadb container"]
+          style 58 fill:#ffffff,stroke:#444444,color:#444444
+
+          59["<div style='font-weight: bold'>RDS Replica</div><div style='font-size: 70%; margin-top: 0px'>[Container: PostgreSQL 16 on AWS RDS db.t3.micro]</div><div style='font-size: 80%; margin-top:10px'>PostgreSQL 16 read replica.<br />Handles read queries routed<br />by PgCat. Read-only.</div>"]
+          style 59 fill:#ffffff,stroke:#444444,color:#444444
+        end
+      end
+    end
+
+    51-. "<div>queries via</div><div style='font-size: 70%'>[PostgreSQL :6432 (localhost in ECS task)]</div>" .->53
+    53-. "<div>routes writes to</div><div style='font-size: 70%'>[PostgreSQL :5432]</div>" .->56
+    53-. "<div>routes reads to</div><div style='font-size: 70%'>[PostgreSQL :5432]</div>" .->59
+    56-. "<div>replicates WAL to</div><div style='font-size: 70%'>[PostgreSQL streaming replication]</div>" .->59
+  end
+```
+
+---
+
 ## Ports
 
 | Service   | Host port | Container port |
@@ -163,29 +273,97 @@ docker compose down -v
 
 The application can be deployed to AWS ECS using Terraform. The architecture uses the **sidecar pattern** — `railsapi` and `pgcat` run in the same ECS task and communicate over `localhost`. PgCat routes queries to the appropriate RDS instance automatically.
 
-```
-                        Internet
-                           |
-                     +-----+-----+
-                     |    ALB    |   Application Load Balancer
-                     +-----+-----+   (routes HTTP traffic)
-                           |
-                +----------+----------+
-                |     ECS Service     |   Runs N copies of your task
-                |  +----------------+ |
-                |  |   railsapi     | |   Rails app (port 3000)
-                |  |       |        | |
-                |  |     pgcat      | |   Sidecar (port 6432)
-                |  +----------------+ |
-                +----------+----------+
-                           |
-                +----------+----------+
-                |                     |
-          +-----+-----+       +------+----+
-          | RDS       |       | RDS       |
-          | Primary   +--WAL-->  Replica  |
-          | (writes)  |       | (reads)   |
-          +-----------+       +-----------+
+```mermaid
+graph LR
+  linkStyle default fill:#ffffff
+
+  subgraph diagram ["Deployment View: Replication API - AWS (us-east-1)"]
+    style diagram fill:#ffffff,stroke:#ffffff
+
+    subgraph 20 ["AWS"]
+      style 20 fill:#ffffff,stroke:#444444,color:#444444
+
+      subgraph 21 ["us-east-1"]
+        style 21 fill:#ffffff,stroke:#444444,color:#444444
+
+        subgraph 22 ["VPC"]
+          style 22 fill:#ffffff,stroke:#444444,color:#444444
+
+          subgraph 23 ["ALB Security Group"]
+            style 23 fill:#ffffff,stroke:#444444,color:#444444
+
+            24["<div style='font-weight: bold'>ALB</div><div style='font-size: 70%; margin-top: 0px'>[Container: AWS Application Load Balancer]</div><div style='font-size: 80%; margin-top:10px'>Internet-facing Application<br />Load Balancer. Routes HTTP<br />traffic to ECS tasks.</div>"]
+            style 24 fill:#ffffff,stroke:#444444,color:#444444
+          end
+
+          subgraph 25 ["ECS Cluster"]
+            style 25 fill:#ffffff,stroke:#444444,color:#444444
+
+            subgraph 26 ["ECS Service"]
+              style 26 fill:#ffffff,stroke:#444444,color:#444444
+
+              subgraph 27 ["ECS Task"]
+                style 27 fill:#ffffff,stroke:#444444,color:#444444
+
+                subgraph 28 ["ECS Security Group"]
+                  style 28 fill:#ffffff,stroke:#444444,color:#444444
+
+                  29["<div style='font-weight: bold'>Rails API</div><div style='font-size: 70%; margin-top: 0px'>[Container: Ruby on Rails 7 / Ruby 3]</div><div style='font-size: 80%; margin-top:10px'>Handles HTTP requests.<br />Connects to PgCat on<br />localhost:6432 for all<br />database operations.</div>"]
+                  style 29 fill:#ffffff,stroke:#444444,color:#444444
+                  31["<div style='font-weight: bold'>PgCat</div><div style='font-size: 70%; margin-top: 0px'>[Container: PgCat]</div><div style='font-size: 80%; margin-top:10px'>Connection pooler with query<br />parser. Routes SELECTs to<br />replica and writes to<br />primary. Pool size: 20.</div>"]
+                  style 31 fill:#ffffff,stroke:#444444,color:#444444
+                end
+              end
+            end
+          end
+
+          subgraph 33 ["RDS Security Group"]
+            style 33 fill:#ffffff,stroke:#444444,color:#444444
+
+            subgraph 34 ["RDS Primary Instance"]
+              style 34 fill:#ffffff,stroke:#444444,color:#444444
+
+              35["<div style='font-weight: bold'>RDS Primary</div><div style='font-size: 70%; margin-top: 0px'>[Container: PostgreSQL 16 on AWS RDS db.t3.micro]</div><div style='font-size: 80%; margin-top:10px'>PostgreSQL 16 primary<br />instance. Handles all write<br />operations. Streams WAL to<br />replica.</div>"]
+              style 35 fill:#ffffff,stroke:#444444,color:#444444
+            end
+
+            subgraph 37 ["RDS Replica Instance"]
+              style 37 fill:#ffffff,stroke:#444444,color:#444444
+
+              38["<div style='font-weight: bold'>RDS Replica</div><div style='font-size: 70%; margin-top: 0px'>[Container: PostgreSQL 16 on AWS RDS db.t3.micro]</div><div style='font-size: 80%; margin-top:10px'>PostgreSQL 16 read replica.<br />Handles read queries routed<br />by PgCat. Read-only.</div>"]
+              style 38 fill:#ffffff,stroke:#444444,color:#444444
+            end
+          end
+        end
+
+        subgraph 41 ["ECR Repository"]
+          style 41 fill:#ffffff,stroke:#444444,color:#444444
+
+          42["<div style='font-weight: bold'>ECR</div><div style='font-size: 70%; margin-top: 0px'>[Container: AWS Elastic Container Registry]</div><div style='font-size: 80%; margin-top:10px'>Container image registry.<br />Stores railsapi images tagged<br />with commit SHA and latest.</div>"]
+          style 42 fill:#ffffff,stroke:#444444,color:#444444
+        end
+      end
+    end
+
+    subgraph 43 ["GitHub"]
+      style 43 fill:#ffffff,stroke:#444444,color:#444444
+
+      subgraph 44 ["GitHub Actions Runner"]
+        style 44 fill:#ffffff,stroke:#444444,color:#444444
+
+        45["<div style='font-weight: bold'>GitHub Actions</div><div style='font-size: 70%; margin-top: 0px'>[Container: GitHub Actions / OIDC]</div><div style='font-size: 80%; margin-top:10px'>CI/CD pipeline. Builds and<br />pushes Docker image, updates<br />ECS task definition, runs<br />db:migrate.</div>"]
+        style 45 fill:#ffffff,stroke:#444444,color:#444444
+      end
+    end
+
+    24-. "<div>forwards requests to</div><div style='font-size: 70%'>[HTTP :3000]</div>" .->29
+    29-. "<div>queries via</div><div style='font-size: 70%'>[PostgreSQL :6432 (localhost in ECS task)]</div>" .->31
+    31-. "<div>routes writes to</div><div style='font-size: 70%'>[PostgreSQL :5432]</div>" .->35
+    31-. "<div>routes reads to</div><div style='font-size: 70%'>[PostgreSQL :5432]</div>" .->38
+    35-. "<div>replicates WAL to</div><div style='font-size: 70%'>[PostgreSQL streaming replication]</div>" .->38
+    45-. "<div>deploys via ECS task<br />definition update +<br />db:migrate</div><div style='font-size: 70%'>[AWS ECS API]</div>" .->29
+    45-. "<div>pushes Docker image to</div><div style='font-size: 70%'>[docker push]</div>" .->42
+  end
 ```
 
 | Component | Role |
