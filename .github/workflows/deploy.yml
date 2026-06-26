@@ -52,7 +52,7 @@ jobs:
       # -----------------------------------------------------------------------
       # This clones your repository into the runner so we can build the image.
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       # -----------------------------------------------------------------------
       # Step 2: Authenticate with AWS using OIDC
