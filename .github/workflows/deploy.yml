@@ -63,7 +63,7 @@ jobs:
       #   3. Receives temporary AWS credentials (~1 hour)
       # No AWS access keys are stored in GitHub secrets!
       - name: Configure AWS credentials via OIDC
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: aws-actions/configure-aws-credentials@v6
         with:
           # This role ARN comes from Terraform output: github_actions_role_arn
           # Store it as a GitHub Actions variable (Settings > Secrets and variables > Actions)
